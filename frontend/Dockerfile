@@ -24,5 +24,6 @@ RUN npm run build
 # 暴露端口
 EXPOSE 5173
 
-# 启动命令
-CMD ["npm", "run", "preview"]
+# 启动命令 - 使用 http-server 托管静态文件
+RUN npm install -g http-server
+CMD ["http-server", "dist", "-p", "5173", "-a", "0.0.0.0"]
