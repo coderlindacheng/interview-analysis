@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Table, Button, Space, Modal, Form, Input, DatePicker, Select, message } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
-import axios from 'axios'
 import type { ColumnsType } from 'antd/es/table'
 
 interface InterviewData {
@@ -149,9 +148,11 @@ const Interviews = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      // await axios.delete(`/api/interviews/${id}`)
+      // 本地更新列表，保证参数被实际使用
+      setData(prev => prev.filter(item => item.id !== id))
       message.success('删除成功')
-      fetchData()
+      // 真实项目中可改为调用后端并再刷新
+      // fetchData()
     } catch (error) {
       message.error('删除失败')
     }
@@ -161,14 +162,38 @@ const Interviews = () => {
     try {
       const values = await form.validateFields()
       if (editingRecord) {
-        // await axios.put(`/api/interviews/${editingRecord.id}`, values)
+        // 本地更新，演示使用表单值
+        setData(prev => prev.map(item => {
+          if (item.id !== (editingRecord as InterviewData).id) return item
+          const formattedDate = values.date?.format ? values.date.format('YYYY-MM-DD') : values.date
+          return {
+            ...item,
+            ...values,
+            date: formattedDate ?? item.date,
+            score: Number(values.score ?? item.score),
+          }
+        }))
         message.success('更新成功')
       } else {
-        // await axios.post('/api/interviews', values)
+        // 本地新增，演示使用表单值
+        const newId = data.length ? Math.max(...data.map(d => d.id)) + 1 : 1
+        const formattedDate = values.date?.format ? values.date.format('YYYY-MM-DD') : values.date
+        const newItem: InterviewData = {
+          id: newId,
+          candidateName: values.candidateName,
+          position: values.position,
+          department: values.department,
+          interviewer: values.interviewer,
+          date: formattedDate ?? '',
+          status: values.status,
+          score: Number(values.score ?? 0),
+        }
+        setData(prev => [...prev, newItem])
         message.success('添加成功')
       }
       setIsModalVisible(false)
-      fetchData()
+      // 真实项目中可改为刷新后端数据
+      // fetchData()
     } catch (error) {
       message.error('操作失败')
     }

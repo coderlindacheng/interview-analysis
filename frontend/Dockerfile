@@ -4,18 +4,16 @@ FROM node:18-alpine
 # 设置工作目录
 WORKDIR /app
 
-# 配置npm使用阿里云镜像源
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm config set disturl https://npmmirror.com/dist && \
-    npm config set electron_mirror https://npmmirror.com/mirrors/electron/ && \
-    npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass/ && \
-    npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs/
+# 配置 npm 使用阿里云镜像（兼容 npm 10）
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
 
 # 复制package.json和package-lock.json
 COPY package*.json ./
 
-# 安装依赖
-RUN npm ci --only=production
+# 安装依赖（项目未提供 package-lock.json，使用 npm install）
+RUN npm install
 
 # 复制源代码
 COPY . .
