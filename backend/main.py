@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import interviews
-from .config import settings
+from routers import interviews
+from config import settings
 
 app = FastAPI(title=settings.app_name, version=settings.version)
 
