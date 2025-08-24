@@ -1,6 +1,15 @@
-FROM node:18-alpine
+# 使用阿里云Node.js镜像作为基础镜像
+FROM registry.cn-hangzhou.aliyuncs.com/aliyun/node:18-alpine
 
+# 设置工作目录
 WORKDIR /app
+
+# 配置npm使用阿里云镜像源
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set disturl https://npmmirror.com/dist && \
+    npm config set electron_mirror https://npmmirror.com/mirrors/electron/ && \
+    npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass/ && \
+    npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs/
 
 # 复制package.json和package-lock.json
 COPY package*.json ./

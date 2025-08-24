@@ -5,26 +5,45 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      # 使用阿里云镜像加速构建
+      args:
+        - HTTP_PROXY=http://mirrors.aliyun.com
+        - HTTPS_PROXY=http://mirrors.aliyun.com
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./interview_analysis.db
       - DEBUG=True
+      # 配置Python pip使用阿里云镜像
+      - PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+      - PIP_TRUSTED_HOST=mirrors.aliyun.com
     volumes:
       - ./backend:/app
     networks:
       - interview-network
+    # 构建时的镜像拉取配置
+    pull: true
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # 使用阿里云镜像加速构建
+      args:
+        - HTTP_PROXY=http://mirrors.aliyun.com
+        - HTTPS_PROXY=http://mirrors.aliyun.com
     ports:
       - "5173:5173"
+    environment:
+      # 配置npm使用阿里云镜像
+      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+      - NPM_CONFIG_DISTURL=https://npmmirror.com/dist
     depends_on:
       - backend
     networks:
       - interview-network
+    # 构建时的镜像拉取配置
+    pull: true
 
 networks:
   interview-network:

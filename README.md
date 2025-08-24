@@ -152,9 +152,37 @@ interview-analysis/
 ### 开发环境
 直接使用上述的启动方式即可。
 
+### Docker 镜像加速配置
+
+项目已配置使用阿里云镜像仓库进行加速构建：
+
+#### 1. Docker Daemon 配置
+复制项目根目录的 `docker-daemon.json` 到 Docker 配置目录：
+```bash
+# Linux/Mac
+sudo cp docker-daemon.json /etc/docker/daemon.json
+sudo systemctl restart docker
+
+# Windows
+# 将 docker-daemon.json 内容复制到 Docker Desktop 设置中的 Daemon 配置
+```
+
+#### 2. 阿里云镜像加速说明
+- **后端**: 使用阿里云 Python 镜像和 pip 镜像源
+- **前端**: 使用阿里云 Node.js 镜像和 npm 镜像源
+- **系统**: 使用阿里云 Debian 软件源
+
 ### 生产环境
-1. 后端：使用 uvicorn 或 gunicorn
-2. 前端：构建静态文件
+
+#### Docker 部署
+```bash
+# 使用 Docker Compose 构建和运行
+docker-compose up --build
+```
+
+#### 传统部署
+1. **后端**：使用 uvicorn 或 gunicorn
+2. **前端**：构建静态文件
 ```bash
 cd frontend
 npm run build

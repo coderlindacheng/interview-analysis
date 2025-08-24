@@ -1,0 +1,21 @@
+{
+  "registry-mirrors": [
+    "https://registry.docker-cn.com",
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://hub-mirror.c.163.com"
+  ],
+  "data-root": "/var/lib/docker",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "3"
+  },
+  "insecure-registries": [],
+  "registry-config": {
+    "index.docker.io": {
+      "mirror": [
+        "https://docker.mirrors.ustc.edu.cn"
+      ]
+    }
+  }
+}

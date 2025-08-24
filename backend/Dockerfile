@@ -1,6 +1,12 @@
-FROM python:3.11-slim
+# 使用阿里云Python镜像作为基础镜像
+FROM registry.cn-hangzhou.aliyuncs.com/aliyun/python:3.11-slim
 
+# 设置工作目录
 WORKDIR /app
+
+# 替换为阿里云的Debian镜像源
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -9,6 +15,10 @@ RUN apt-get update && apt-get install -y \
 
 # 复制依赖文件
 COPY requirements.txt .
+
+# 配置pip使用阿里云镜像源
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
