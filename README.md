@@ -157,7 +157,14 @@ interview-analysis/
 项目已配置使用阿里云镜像仓库进行加速构建：
 
 #### 1. Docker Daemon 配置
-复制项目根目录的 `docker-daemon.json` 到 Docker 配置目录：
+
+**自动配置（推荐）:**
+```bash
+# 运行自动配置脚本
+sudo ./setup-docker.sh
+```
+
+**手动配置:**
 ```bash
 # Linux/Mac
 sudo cp docker-daemon.json /etc/docker/daemon.json
@@ -166,6 +173,12 @@ sudo systemctl restart docker
 # Windows
 # 将 docker-daemon.json 内容复制到 Docker Desktop 设置中的 Daemon 配置
 ```
+
+**配置脚本功能:**
+- 自动备份原有配置
+- 应用阿里云镜像加速配置
+- 重启Docker服务
+- 测试配置是否生效
 
 #### 2. 阿里云镜像加速说明
 - **后端**: 使用阿里云 Python 镜像和 pip 镜像源

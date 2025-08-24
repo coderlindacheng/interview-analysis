@@ -6,6 +6,7 @@ import {
   FileTextOutlined,
   BarChartOutlined,
   SettingOutlined,
+  AudioOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined
 } from '@ant-design/icons'
@@ -13,6 +14,7 @@ import Home from './pages/Home'
 import Interviews from './pages/Interviews'
 import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
+import VoiceAnalysis from './pages/VoiceAnalysis'
 import './App.css'
 
 const { Header, Content, Sider } = Layout
@@ -28,6 +30,11 @@ const menuItems = [
     key: '/interviews',
     icon: <FileTextOutlined />,
     label: <Link to="/interviews">面试记录</Link>,
+  },
+  {
+    key: '/voice-analysis',
+    icon: <AudioOutlined />,
+    label: <Link to="/voice-analysis">实时语音分析</Link>,
   },
   {
     key: '/analysis',
@@ -52,6 +59,8 @@ function App() {
         return '首页'
       case '/interviews':
         return '面试记录'
+      case '/voice-analysis':
+        return '实时语音分析'
       case '/analysis':
         return '数据分析'
       case '/settings':
@@ -123,6 +132,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/interviews" element={<Interviews />} />
+              <Route path="/voice-analysis" element={<VoiceAnalysis />} />
               <Route path="/analysis" element={<Analysis />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
