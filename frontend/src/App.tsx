@@ -2,16 +2,12 @@ import { useState } from 'react'
 import { Layout, Menu, Button, Typography } from 'antd'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import {
-  HomeOutlined,
-  FileTextOutlined,
   BarChartOutlined,
   SettingOutlined,
   AudioOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined
 } from '@ant-design/icons'
-import Home from './pages/Home'
-import Interviews from './pages/Interviews'
 import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
 import VoiceAnalysis from './pages/VoiceAnalysis'
@@ -21,16 +17,6 @@ const { Header, Content, Sider } = Layout
 const { Title } = Typography
 
 const menuItems = [
-  {
-    key: '/',
-    icon: <HomeOutlined />,
-    label: <Link to="/">首页</Link>,
-  },
-  {
-    key: '/interviews',
-    icon: <FileTextOutlined />,
-    label: <Link to="/interviews">面试记录</Link>,
-  },
   {
     key: '/voice-analysis',
     icon: <AudioOutlined />,
@@ -55,10 +41,6 @@ function App() {
   // 获取当前页面标题
   const getPageTitle = () => {
     switch (location.pathname) {
-      case '/':
-        return '首页'
-      case '/interviews':
-        return '面试记录'
       case '/voice-analysis':
         return '实时语音分析'
       case '/analysis':
@@ -66,7 +48,7 @@ function App() {
       case '/settings':
         return '设置'
       default:
-        return '面试分析系统'
+        return '实时语音分析'
     }
   }
 
@@ -130,8 +112,7 @@ function App() {
         >
           <div className="main-content" style={{ padding: 24 }}>
             <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/interviews" element={<Interviews />} />
+              <Route path="/" element={<VoiceAnalysis />} />
               <Route path="/voice-analysis" element={<VoiceAnalysis />} />
               <Route path="/analysis" element={<Analysis />} />
               <Route path="/settings" element={<Settings />} />
