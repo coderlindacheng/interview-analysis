@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Button, Card, Row, Col, Typography, Space, Alert, Progress, Tag, Divider } from 'antd'
+import { Button, Card, Row, Col, Typography, Space, Alert, Progress, Tag, Divider, message } from 'antd'
 import { 
   AudioOutlined, 
   StopOutlined,
@@ -9,6 +9,16 @@ import {
 } from '@ant-design/icons'
 
 const { Title, Text, Paragraph } = Typography
+
+// File System Access API 类型补充
+declare global {
+  interface Window {
+    showDirectoryPicker: (options?: {
+      mode?: 'read' | 'readwrite'
+      startIn?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'
+    }) => Promise<FileSystemDirectoryHandle>
+  }
+}
 
 interface VoiceAnalysisResult {
   timestamp: string
@@ -33,6 +43,74 @@ const VoiceAnalysis = () => {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animationFrameRef = useRef<number>()
   const timerRef = useRef<number>()
+  const streamRef = useRef<MediaStream | null>(null)
+  const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
+  const recordingChunksRef = useRef<Blob[]>([])
+
+  // 检查并请求文件系统访问权限
+  const requestDirectoryAccess = async () => {
+    try {
+      // 检查是否支持 File System Access API
+      if ('showDirectoryPicker' in window) {
+        // 请求用户选择保存目录
+        const dirHandle = await window.showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'desktop'
+        })
+        
+        // 直接使用用户选择的目录
+        directoryHandleRef.current = dirHandle
+        message.success('录音保存目录选择成功')
+        return true
+      } else {
+        message.info('浏览器不支持文件系统访问，将使用下载方式保存文件')
+        return false
+      }
+    } catch (error: any) {
+      // 用户取消选择目录不应该显示为错误
+      if (error.name === 'AbortError') {
+        message.info('已取消目录选择，将使用下载方式保存录音文件')
+        console.log('用户取消了目录选择')
+      } else {
+        console.warn('无法获取目录访问权限:', error)
+        message.warning('无法获取目录访问权限，将使用下载方式保存文件')
+      }
+      return false
+    }
+  }
+
+
+
+  // 保存录音文件
+  const saveRecordingFile = async (audioBlob: Blob) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const fileName = `recording_${timestamp}.webm`
+    
+    try {
+      if (directoryHandleRef.current) {
+        // 使用 File System Access API 保存到指定目录
+        const fileHandle = await directoryHandleRef.current.getFileHandle(fileName, { create: true })
+        const writable = await fileHandle.createWritable()
+        await writable.write(audioBlob)
+        await writable.close()
+        message.success(`录音已保存: ${fileName}`)
+      } else {
+        // 降级到下载方式
+        const url = URL.createObjectURL(audioBlob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        message.success(`录音已下载: ${fileName}`)
+      }
+    } catch (error) {
+      console.error('保存录音文件失败:', error)
+      message.error('保存录音文件失败')
+    }
+  }
 
   // 模拟语音识别
   const mockSpeechRecognition = () => {
@@ -78,20 +156,46 @@ const VoiceAnalysis = () => {
   // 开始录音
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // 1. 选择录音保存目录（可选，失败不影响录音）
+      message.loading('请选择录音保存目录...', 1)
+      const hasDirectoryAccess = await requestDirectoryAccess()
       
-      // 创建音频上下文用于检测音频级别
+      // 2. 获取麦克风音频
+      message.loading('获取麦克风权限...', 1)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 44100
+        } 
+      })
+      streamRef.current = stream
+      
+      // 3. 创建音频上下文用于检测音频级别
       audioContextRef.current = new AudioContext()
       analyserRef.current = audioContextRef.current.createAnalyser()
       const source = audioContextRef.current.createMediaStreamSource(stream)
       source.connect(analyserRef.current)
       
-      // 创建媒体录制器
-      mediaRecorderRef.current = new MediaRecorder(stream)
+      // 4. 创建媒体录制器
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      })
+      
+      // 5. 重置录音数据
+      recordingChunksRef.current = []
       
       mediaRecorderRef.current.ondataavailable = (event) => {
-        // 这里可以处理录音数据，发送到后端进行真实的语音识别
-        console.log('录音数据:', event.data)
+        if (event.data.size > 0) {
+          recordingChunksRef.current.push(event.data)
+        }
+      }
+      
+      mediaRecorderRef.current.onstop = async () => {
+        // 录音结束时保存文件
+        const recordingBlob = new Blob(recordingChunksRef.current, { type: 'audio/webm' })
+        await saveRecordingFile(recordingBlob)
       }
       
       mediaRecorderRef.current.start(1000) // 每秒触发一次 dataavailable
@@ -117,23 +221,35 @@ const VoiceAnalysis = () => {
         }
       }, 3000)
       
+      // 显示录音状态
+      const saveStatus = hasDirectoryAccess ? '保存到所选目录' : '自动下载'
+      message.success(`录音开始！录制麦克风音频，${saveStatus}`)
+      
     } catch (error) {
-      console.error('无法访问麦克风:', error)
-      alert('无法访问麦克风，请检查权限设置')
+      console.error('录音启动失败:', error)
+      message.error('录音启动失败，请检查权限设置')
     }
   }
 
   // 停止录音
   const stopRecording = () => {
+    // 停止录制器
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
     }
     
+    // 停止音频流
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    
+    // 关闭音频上下文
     if (audioContextRef.current) {
       audioContextRef.current.close()
     }
     
+    // 清理动画和计时器
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
     }
@@ -144,6 +260,8 @@ const VoiceAnalysis = () => {
     
     setIsRecording(false)
     setAudioLevel(0)
+    
+    message.success('录音已停止并保存')
   }
 
   // 组件卸载时清理
@@ -164,7 +282,7 @@ const VoiceAnalysis = () => {
     <div>
       <Title level={2}>实时语音分析</Title>
       <Paragraph type="secondary">
-        点击开始按钮开始录音，系统将实时分析您的语音内容、情感和表达质量
+        点击开始按钮开始录音，并选择你的录音保存目录，系统将录制麦克风音频，实时分析您的语音内容、情感和表达质量。
       </Paragraph>
 
       {/* 控制区域 */}
@@ -196,6 +314,8 @@ const VoiceAnalysis = () => {
                   strokeColor="#52c41a"
                 />
               </div>
+              
+
             </>
           )}
         </Space>
