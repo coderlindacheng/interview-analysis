@@ -1,23 +1,28 @@
+"""
+配置文件
+"""
+
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List
 
 class Settings(BaseSettings):
-    # 应用配置
     app_name: str = "Interview Analysis API"
     version: str = "1.0.0"
-    debug: bool = True
-
-    # 数据库配置
+    allowed_origins: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ]
+    
+    # 数据库配置（如果需要）
     database_url: str = "sqlite:///./interview_analysis.db"
-
-    # JWT配置
-    secret_key: str = "your-secret-key-here"
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
-
-    # CORS配置
-    allowed_origins: list[str] = ["http://localhost:5173"]
-
+    
+    # FunASR配置
+    funasr_host: str = "localhost"
+    funasr_port: int = 10096
+    funasr_use_ssl: bool = False
+    
     class Config:
         env_file = ".env"
 

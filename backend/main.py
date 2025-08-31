@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import interviews
+from routers import interviews, websocket_voice
 from config import settings
 
 app = FastAPI(title=settings.app_name, version=settings.version)
@@ -17,6 +17,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(interviews.router, prefix="/api", tags=["interviews"])
+app.include_router(websocket_voice.router, prefix="/api", tags=["voice-websocket"])
 
 @app.get("/")
 async def root():

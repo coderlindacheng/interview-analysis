@@ -7,6 +7,13 @@ import {
   BulbOutlined,
   ClockCircleOutlined
 } from '@ant-design/icons'
+import { 
+  voiceWebSocketService, 
+  AudioProcessor, 
+  parseSenseVoiceEmotion,
+  type TranscriptionResult, 
+  type VoiceAnalysisResult 
+} from '../services/websocketService'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -20,15 +27,38 @@ declare global {
   }
 }
 
-interface VoiceAnalysisResult {
-  timestamp: string
-  confidence: number
-  emotion: string
-  sentiment: string
-  keywords: string[]
-  fluency: number
-  pace: number
-}
+// 移除本地接口定义，使用从websocketService导入的类型
+
+// 提取关键词的简单函数
+const extractKeywords = (text: string): string[] => {
+  // 简单的中文关键词提取
+  const words = text.replace(/[，。！？；：""''（）【】\s]/g, ' ').split(/\s+/).filter(word => word.length > 1);
+  const keywords = words.slice(0, 5); // 取前5个词作为关键词
+  return keywords;
+};
+
+// 计算流畅度（基于语句完整性和标点符号）
+const calculateFluency = (text: string): number => {
+  if (!text.trim()) return 0;
+  
+  const sentences = text.split(/[。！？]/).filter(s => s.trim());
+  const avgLength = sentences.reduce((sum, s) => sum + s.length, 0) / sentences.length;
+  const punctuationCount = (text.match(/[，。！？；：]/g) || []).length;
+  
+  // 基于句子长度和标点符号密度计算流畅度
+  const fluency = Math.min(100, (avgLength / 10) * 20 + (punctuationCount / text.length) * 100 * 50);
+  return Math.round(fluency);
+};
+
+// 计算语速（简单估算：字符数/时间）
+const calculatePace = (text: string): number => {
+  if (!text.trim()) return 0;
+  
+  // 假设每个字符需要0.3秒说出，估算语速
+  const estimatedSeconds = text.length * 0.3;
+  const pace = (text.length / estimatedSeconds) * 60; // 转换为每分钟字符数
+  return Math.round(pace);
+};
 
 const VoiceAnalysis = () => {
   const [isRecording, setIsRecording] = useState(false)
@@ -37,7 +67,10 @@ const VoiceAnalysis = () => {
   const [currentAnalysis, setCurrentAnalysis] = useState<VoiceAnalysisResult | null>(null)
   const [audioLevel, setAudioLevel] = useState(0)
   const [recordingTime, setRecordingTime] = useState(0)
+  const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')
   
+  // WebSocket和音频处理相关引用
+  const audioProcessorRef = useRef<AudioProcessor | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -112,33 +145,79 @@ const VoiceAnalysis = () => {
     }
   }
 
-  // 模拟语音识别
-  const mockSpeechRecognition = () => {
-    const mockTexts = [
-      "你好，我是来应聘前端开发工程师的",
-      "我有三年的React开发经验",
-      "我熟悉TypeScript和现代前端框架",
-      "我对这个职位很感兴趣",
-      "我希望能够加入你们团队"
-    ]
+  // WebSocket回调函数设置
+  useEffect(() => {
+    // 设置WebSocket回调函数
+    voiceWebSocketService.setCallbacks({
+      onTranscription: (result: TranscriptionResult) => {
+        // 解析SenseVoice情感标签
+        const emotionInfo = parseSenseVoiceEmotion(result.text);
+        
+        // 更新转录文本（使用清理后的文本）
+        setTranscriptText(prev => {
+          if (result.is_final) {
+            return prev + (prev ? ' ' : '') + emotionInfo.cleanText
+          } else {
+            return prev + (prev ? ' ' : '') + `[${emotionInfo.cleanText}]`
+          }
+        })
+        
+        // 如果检测到情感标签且是最终结果，生成情感分析结果
+        if (emotionInfo.emotionTag && result.is_final) {
+          const analysisResult: VoiceAnalysisResult = {
+            timestamp: result.timestamp,
+            confidence: result.confidence,
+            emotion: emotionInfo.emotion,
+            sentiment: emotionInfo.sentiment,
+            keywords: extractKeywords(emotionInfo.cleanText),
+            fluency: calculateFluency(emotionInfo.cleanText),
+            pace: calculatePace(emotionInfo.cleanText)
+          };
+          
+          // 更新情感分析结果
+          setCurrentAnalysis(analysisResult);
+          setAnalysisResults(prev => [...prev, analysisResult]);
+        }
+      },
+      
+      onAnalysis: (result: VoiceAnalysisResult) => {
+        setCurrentAnalysis(result)
+        setAnalysisResults(prev => [...prev, result])
+      },
+      
+      onConnectionStatus: (status: string) => {
+        // 将后端状态映射为通用的前端状态
+        let frontendStatus = status
+        if (status === 'funasr_connected') {
+          frontendStatus = 'service_ready'
+        } else if (status === 'funasr_failed') {
+          frontendStatus = 'service_fallback'
+        }
+        
+        setConnectionStatus(frontendStatus)
+        
+        if (status === 'connected') {
+          message.success('WebSocket连接成功')
+        } else if (status === 'funasr_connected') {
+          message.success('语音识别服务已连接')
+        } else if (status === 'funasr_failed') {
+          message.warning('语音识别服务连接失败，使用备用服务')
+        } else if (status === 'disconnected') {
+          message.info('连接已断开')
+        }
+      },
+      
+      onError: (error: string) => {
+        message.error(`语音识别错误: ${error}`)
+        console.error('WebSocket错误:', error)
+      }
+    })
     
-    const randomText = mockTexts[Math.floor(Math.random() * mockTexts.length)]
-    setTranscriptText(prev => prev + (prev ? ' ' : '') + randomText)
-    
-    // 模拟分析结果
-    const mockAnalysis: VoiceAnalysisResult = {
-      timestamp: new Date().toLocaleTimeString(),
-      confidence: Math.random() * 0.3 + 0.7, // 70-100%
-      emotion: ['自信', '紧张', '兴奋', '平静'][Math.floor(Math.random() * 4)],
-      sentiment: ['积极', '中性', '消极'][Math.floor(Math.random() * 3)],
-      keywords: ['技术', '经验', '团队', '开发', '项目'].slice(0, Math.floor(Math.random() * 3) + 1),
-      fluency: Math.random() * 30 + 70, // 70-100
-      pace: Math.random() * 40 + 80 // 80-120 wpm
+    // 组件卸载时清理连接
+    return () => {
+      voiceWebSocketService.disconnect()
     }
-    
-    setCurrentAnalysis(mockAnalysis)
-    setAnalysisResults(prev => [...prev, mockAnalysis])
-  }
+  }, [])
 
   // 音频级别检测
   const detectAudioLevel = () => {
@@ -156,34 +235,57 @@ const VoiceAnalysis = () => {
   // 开始录音
   const startRecording = async () => {
     try {
-      // 1. 选择录音保存目录（可选，失败不影响录音）
+      // 1. 连接WebSocket服务
+      message.loading('连接语音识别服务...', 1)
+      const connected = await voiceWebSocketService.connect()
+      if (!connected) {
+        message.error('无法连接到语音识别服务')
+        return
+      }
+      
+      // 2. 选择录音保存目录（可选，失败不影响录音）
       message.loading('请选择录音保存目录...', 1)
       const hasDirectoryAccess = await requestDirectoryAccess()
       
-      // 2. 获取麦克风音频
+      // 3. 获取麦克风音频
       message.loading('获取麦克风权限...', 1)
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
-          sampleRate: 44100
+          sampleRate: 16000  // 修改为16000以匹配后端期望
         } 
       })
       streamRef.current = stream
       
-      // 3. 创建音频上下文用于检测音频级别
+      // 4. 创建音频上下文用于检测音频级别
       audioContextRef.current = new AudioContext()
       analyserRef.current = audioContextRef.current.createAnalyser()
       const source = audioContextRef.current.createMediaStreamSource(stream)
       source.connect(analyserRef.current)
       
-      // 4. 创建媒体录制器
+      // 5. 初始化音频处理器用于WebSocket传输
+      audioProcessorRef.current = new AudioProcessor()
+      const audioProcessorInitialized = await audioProcessorRef.current.initializeAudioProcessor(
+        stream, 
+        (audioData: ArrayBuffer) => {
+          // 发送音频数据到WebSocket
+          voiceWebSocketService.sendAudioData(audioData)
+        }
+      )
+      
+      if (!audioProcessorInitialized) {
+        message.error('初始化音频处理器失败')
+        return
+      }
+      
+      // 6. 创建媒体录制器用于本地保存
       mediaRecorderRef.current = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
       })
       
-      // 5. 重置录音数据
+      // 7. 重置录音数据
       recordingChunksRef.current = []
       
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -203,6 +305,7 @@ const VoiceAnalysis = () => {
       setRecordingTime(0)
       setTranscriptText('')
       setAnalysisResults([])
+      setCurrentAnalysis(null)
       
       // 开始检测音频级别
       detectAudioLevel()
@@ -212,22 +315,14 @@ const VoiceAnalysis = () => {
         setRecordingTime(prev => prev + 1)
       }, 1000)
       
-      // 模拟语音识别（每3-5秒触发一次）
-      const mockInterval = setInterval(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          mockSpeechRecognition()
-        } else {
-          clearInterval(mockInterval)
-        }
-      }, 3000)
-      
       // 显示录音状态
       const saveStatus = hasDirectoryAccess ? '保存到所选目录' : '自动下载'
-      message.success(`录音开始！录制麦克风音频，${saveStatus}`)
+      message.success(`录音开始！已连接语音识别服务，${saveStatus}`)
       
     } catch (error) {
       console.error('录音启动失败:', error)
       message.error('录音启动失败，请检查权限设置')
+      voiceWebSocketService.disconnect()
     }
   }
 
@@ -238,6 +333,15 @@ const VoiceAnalysis = () => {
       mediaRecorderRef.current.stop()
     }
     
+    // 停止音频处理器
+    if (audioProcessorRef.current) {
+      audioProcessorRef.current.stop()
+      audioProcessorRef.current = null
+    }
+    
+    // 断开WebSocket连接
+    voiceWebSocketService.disconnect()
+    
     // 停止音频流
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
@@ -247,6 +351,7 @@ const VoiceAnalysis = () => {
     // 关闭音频上下文
     if (audioContextRef.current) {
       audioContextRef.current.close()
+      audioContextRef.current = null
     }
     
     // 清理动画和计时器
@@ -260,6 +365,7 @@ const VoiceAnalysis = () => {
     
     setIsRecording(false)
     setAudioLevel(0)
+    setConnectionStatus('disconnected')
     
     message.success('录音已停止并保存')
   }
@@ -282,7 +388,7 @@ const VoiceAnalysis = () => {
     <div>
       <Title level={2}>实时语音分析</Title>
       <Paragraph type="secondary">
-        点击开始按钮开始录音，并选择你的录音保存目录，系统将录制麦克风音频，实时分析您的语音内容、情感和表达质量。
+        点击开始按钮开始录音，并选择你的录音保存目录，系统将录制麦克风音频，通过SenseVoice技术实时识别语音中的情感标签，自动分析您的情感状态、语音内容和表达质量。
       </Paragraph>
 
       {/* 控制区域 */}
@@ -297,6 +403,26 @@ const VoiceAnalysis = () => {
           >
             {isRecording ? '停止分析' : '开始分析录音'}
           </Button>
+          
+          {/* 连接状态指示器 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div 
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: connectionStatus === 'connected' ? '#52c41a' : 
+                                connectionStatus === 'service_ready' ? '#1890ff' :
+                                connectionStatus === 'service_fallback' ? '#faad14' : '#f5222d'
+              }}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {connectionStatus === 'connected' ? 'WebSocket已连接' :
+               connectionStatus === 'service_ready' ? '语音识别已就绪' :
+               connectionStatus === 'service_fallback' ? '使用备用服务' :
+               connectionStatus === 'disconnected' ? '未连接' : '连接中...'}
+            </Text>
+          </div>
           
           {isRecording && (
             <>
@@ -356,13 +482,13 @@ const VoiceAnalysis = () => {
           </Card>
         </Col>
 
-        {/* 语音实时分析结果视窗 */}
+        {/* 语音情感分析视窗 */}
         <Col span={12}>
           <Card 
             title={
               <Space>
                 <BulbOutlined />
-                实时分析结果
+                情感分析
               </Space>
             }
             style={{ height: 400 }}
@@ -431,7 +557,7 @@ const VoiceAnalysis = () => {
               ) : (
                 <Alert 
                   message="等待分析结果"
-                  description={isRecording ? "正在分析您的语音..." : "开始录音后将显示实时分析结果"}
+                  description={isRecording ? "正在分析您的语音..." : "开始录音后将显示情感分析结果"}
                   type="info"
                   showIcon
                 />
