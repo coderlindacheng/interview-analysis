@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons'
 import { 
   voiceWebSocketService, 
-  parseSenseVoiceEmotion,
+  parseSenseVoiceTags,
   type TranscriptionResult, 
   type VoiceAnalysisResult 
 } from '../services/websocketService'
@@ -200,9 +200,9 @@ const VoiceAnalysis = () => {
     // 设置WebSocket回调函数
     voiceWebSocketService.setCallbacks({
       onTranscription: (result: TranscriptionResult) => {
-        // 解析SenseVoice情感标签
-        const emotionInfo = parseSenseVoiceEmotion(result.text);
-        const cleanText = emotionInfo.cleanText;
+        // 解析SenseVoice标签（情感、语言、事件）
+        const tagInfo = parseSenseVoiceTags(result.text);
+        const cleanText = tagInfo.cleanText;
         const asrMode = result.mode || '2pass';
         const isFinal = result.is_final;
         const timestamp = result.timestamp;
@@ -210,9 +210,13 @@ const VoiceAnalysis = () => {
         console.log("收到转录结果:", {
           originalText: result.text,
           cleanText: cleanText,
-          emotionTag: emotionInfo.emotionTag,
-          emotion: emotionInfo.emotion,
-          sentiment: emotionInfo.sentiment,
+          emotionTag: tagInfo.emotionTag,
+          emotion: tagInfo.emotion,
+          sentiment: tagInfo.sentiment,
+          languageTag: tagInfo.languageTag,
+          language: tagInfo.language,
+          eventTag: tagInfo.eventTag,
+          event: tagInfo.event,
           mode: asrMode,
           isFinal,
           timestamp
@@ -240,18 +244,24 @@ const VoiceAnalysis = () => {
           });
         }
         
-        // 处理情感标签（无论是否为最终结果）
-        if (emotionInfo.emotionTag) {
-          console.log("检测到情感标签:", emotionInfo.emotionTag, "情感:", emotionInfo.emotion);
+        // 处理标签信息（无论是否为最终结果）
+        if (tagInfo.emotionTag || tagInfo.languageTag || tagInfo.eventTag) {
+          console.log("检测到标签:", {
+            emotionTag: tagInfo.emotionTag,
+            languageTag: tagInfo.languageTag,
+            eventTag: tagInfo.eventTag
+          });
           
           const analysisResult: VoiceAnalysisResult = {
             timestamp: result.timestamp,
             confidence: result.confidence,
-            emotion: emotionInfo.emotion,
-            sentiment: emotionInfo.sentiment,
-            keywords: extractKeywords(emotionInfo.cleanText),
-            fluency: calculateFluency(emotionInfo.cleanText),
-            pace: calculatePace(emotionInfo.cleanText)
+            emotion: tagInfo.emotion,
+            sentiment: tagInfo.sentiment,
+            language: tagInfo.language,
+            event: tagInfo.event,
+            keywords: extractKeywords(tagInfo.cleanText),
+            fluency: calculateFluency(tagInfo.cleanText),
+            pace: calculatePace(tagInfo.cleanText)
           };
           
           // 更新情感分析结果
@@ -631,17 +641,19 @@ const VoiceAnalysis = () => {
               {transcriptText ? (
                 <div>
                   <Text>{transcriptText}</Text>
-                  {currentAnalysis && (
-                    <div style={{ marginTop: 8, padding: 8, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        检测到情感: <Tag color="blue">{currentAnalysis.emotion}</Tag>
-                        倾向: <Tag color={
-                          currentAnalysis.sentiment === '积极' ? 'green' : 
-                          currentAnalysis.sentiment === '消极' ? 'red' : 'orange'
-                        }>{currentAnalysis.sentiment}</Tag>
-                      </Text>
-                    </div>
-                  )}
+                         {currentAnalysis && (
+         <div style={{ marginTop: 8, padding: 8, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
+           <Text type="secondary" style={{ fontSize: 12 }}>
+             检测到情感: <Tag color="blue">{currentAnalysis.emotion}</Tag>
+             倾向: <Tag color={
+               currentAnalysis.sentiment === '积极' ? 'green' :
+               currentAnalysis.sentiment === '消极' ? 'red' : 'orange'
+             }>{currentAnalysis.sentiment}</Tag>
+             语言: <Tag color="purple">{currentAnalysis.language}</Tag>
+             事件: <Tag color="cyan">{currentAnalysis.event}</Tag>
+           </Text>
+         </div>
+       )}
                 </div>
               ) : (
                 <Text type="secondary">
@@ -710,6 +722,19 @@ const VoiceAnalysis = () => {
                     </Col>
                   </Row>
 
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Text type="secondary">语言标签:</Text>
+                      <br />
+                      <Tag color="purple">{currentAnalysis.language}</Tag>
+                    </Col>
+                    <Col span={12}>
+                      <Text type="secondary">事件标签:</Text>
+                      <br />
+                      <Tag color="cyan">{currentAnalysis.event}</Tag>
+                    </Col>
+                  </Row>
+
                   <div>
                     <Text type="secondary">关键词:</Text>
                     <br />
@@ -746,6 +771,8 @@ const VoiceAnalysis = () => {
                 <Text type="secondary">{result.timestamp}</Text>
                 <Text style={{ marginLeft: 16 }}>
                   情感: <Tag color="blue">{result.emotion}</Tag>
+                  语言: <Tag color="purple">{result.language}</Tag>
+                  事件: <Tag color="cyan">{result.event}</Tag>
                   置信度: <Tag color="green">{Math.round(result.confidence * 100)}%</Tag>
                   流畅度: <Tag color="orange">{Math.round(result.fluency)}%</Tag>
                 </Text>

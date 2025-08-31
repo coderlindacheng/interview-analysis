@@ -3,6 +3,12 @@
  * 负责与后端WebSocket接口的通信
  */
 
+import { 
+  SENSEVOICE_EMOTION_MAP,
+  SENSEVOICE_LANGUAGE_MAP,
+  SENSEVOICE_EVENT_MAP
+} from './sensevoiceTags'
+
 export interface TranscriptionResult {
   text: string;
   timestamp: string;
@@ -18,6 +24,8 @@ export interface VoiceAnalysisResult {
   confidence: number;
   emotion: string;
   sentiment: string;
+  language: string;
+  event: string;
   keywords: string[];
   fluency: number;
   pace: number;
@@ -31,20 +39,69 @@ export interface WebSocketMessage {
   timestamp?: string;
 }
 
-// SenseVoice情感标签映射
-const SENSEVOICE_EMOTION_MAP: Record<string, { emotion: string; sentiment: string }> = {
-  'HAPPY': { emotion: '开心', sentiment: '积极' },
-  'SAD': { emotion: '悲伤', sentiment: '消极' },
-  'ANGRY': { emotion: '愤怒', sentiment: '消极' },
-  'NEUTRAL': { emotion: '平静', sentiment: '中性' },
-  'EXCITED': { emotion: '兴奋', sentiment: '积极' },
-  'DISGUSTED': { emotion: '厌恶', sentiment: '消极' },
-  'FEARFUL': { emotion: '恐惧', sentiment: '消极' },
-  'SURPRISED': { emotion: '惊讶', sentiment: '中性' }
-};
+
 
 /**
- * 解析SenseVoice情感标签
+ * 解析SenseVoice标签（情感、语言、事件）
+ */
+export function parseSenseVoiceTags(text: string): {
+  cleanText: string;
+  emotionTag: string | null;
+  emotion: string;
+  sentiment: string;
+  languageTag: string | null;
+  language: string;
+  eventTag: string | null;
+  event: string;
+} {
+  let cleanText = text;
+  let emotionTag: string | null = null;
+  let languageTag: string | null = null;
+  let eventTag: string | null = null;
+  
+  // 匹配SenseVoice标签格式: <|TAG|>
+  const tagMatches = text.match(/<\|([A-Za-z_]+)\|>/g);
+  
+  if (tagMatches) {
+    for (const tagMatch of tagMatches) {
+      const tag = tagMatch.replace(/<\||\|>/g, '');
+      
+      // 检查是否为情感标签
+      if (SENSEVOICE_EMOTION_MAP[tag]) {
+        emotionTag = tag;
+        cleanText = cleanText.replace(tagMatch, '').trim();
+      }
+      // 检查是否为语言标签
+      else if (SENSEVOICE_LANGUAGE_MAP[tag]) {
+        languageTag = tag;
+        cleanText = cleanText.replace(tagMatch, '').trim();
+      }
+      // 检查是否为事件标签
+      else if (SENSEVOICE_EVENT_MAP[tag]) {
+        eventTag = tag;
+        cleanText = cleanText.replace(tagMatch, '').trim();
+      }
+    }
+  }
+  
+  const emotionInfo = emotionTag ? SENSEVOICE_EMOTION_MAP[emotionTag] : { emotion: '中性', sentiment: '中性' };
+  const language = languageTag ? SENSEVOICE_LANGUAGE_MAP[languageTag] : '未知语言';
+  const event = eventTag ? SENSEVOICE_EVENT_MAP[eventTag] : '无事件';
+  
+  return {
+    cleanText,
+    emotionTag,
+    emotion: emotionInfo.emotion,
+    sentiment: emotionInfo.sentiment,
+    languageTag,
+    language,
+    eventTag,
+    event
+  };
+}
+
+/**
+ * 解析SenseVoice情感标签（保持向后兼容）
  */
 export function parseSenseVoiceEmotion(text: string): {
   cleanText: string;
@@ -52,27 +109,12 @@ export function parseSenseVoiceEmotion(text: string): {
   emotion: string;
   sentiment: string;
 } {
-  // 匹配SenseVoice情感标签格式: <|EMOTION|>
-  const emotionMatch = text.match(/<\|([A-Z_]+)\|>/);
-  
-  if (emotionMatch) {
-    const emotionTag = emotionMatch[1];
-    const cleanText = text.replace(/<\|[A-Z_]+\|>/, '').trim();
-    const emotionInfo = SENSEVOICE_EMOTION_MAP[emotionTag] || { emotion: '未知', sentiment: '中性' };
-    
-    return {
-      cleanText,
-      emotionTag,
-      emotion: emotionInfo.emotion,
-      sentiment: emotionInfo.sentiment
-    };
-  }
-  
+  const result = parseSenseVoiceTags(text);
   return {
-    cleanText: text,
-    emotionTag: null,
-    emotion: '中性',
-    sentiment: '中性'
+    cleanText: result.cleanText,
+    emotionTag: result.emotionTag,
+    emotion: result.emotion,
+    sentiment: result.sentiment
   };
 }
 
