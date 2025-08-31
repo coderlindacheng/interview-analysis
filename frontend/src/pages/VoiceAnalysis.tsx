@@ -74,7 +74,8 @@ const VoiceAnalysis = () => {
   // === 基础状态管理 ===
   const [isRecording, setIsRecording] = useState(false)          // 录音状态控制（用于UI渲染）
   const isRecordingRef = useRef(false)                          // 录音状态引用（用于recProcess函数）
-  const [transcriptText, setTranscriptText] = useState('')       // 实时转录文本内容
+  const [transcriptText, setTranscriptText] = useState('')       // 实时转录文本内容（类似html中的rec_text）
+  const [offlineText, setOfflineText] = useState('')             // 离线识别结果（类似html中的offline_text）
   const [analysisResults, setAnalysisResults] = useState<VoiceAnalysisResult[]>([])  // 历史分析结果列表
   const [currentAnalysis, setCurrentAnalysis] = useState<VoiceAnalysisResult | null>(null)  // 当前分析结果
   const [audioLevel, setAudioLevel] = useState(0)               // 音频音量级别（0-100）
@@ -89,6 +90,45 @@ const VoiceAnalysis = () => {
   const streamRef = useRef<MediaStream | null>(null)             // 音频流引用
   const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null)  // 文件系统目录句柄
   const recordingChunksRef = useRef<Blob[]>([])                  // 录音数据块缓存
+
+  // 处理带时间戳的文本（类似html中的handleWithTimestamp函数）
+  const handleWithTimestamp = (text: string, timestamp: any) => {
+    if (!timestamp || timestamp === "undefined" || !text.trim()) {
+      return text;
+    }
+    
+    // 清理文本，将标点符号替换为逗号
+    const cleanText = text.replace(/[。？，、\?\.\s]/g, ",");
+    const words = cleanText.split(",").filter(word => word.trim());
+    
+    try {
+      const timeData = JSON.parse(timestamp);
+      let charIndex = 0;
+      let textWithTime = "";
+      
+      for (const word of words) {
+        if (word === "undefined" || !word.trim()) {
+          continue;
+        }
+        
+        // 检查是否为英文单词
+        if (/^[a-zA-Z]+$/.test(word)) {
+          // 英文：按单词计算时间戳
+          textWithTime += `${(timeData[charIndex][0] / 1000).toFixed(2)}:${word}\n`;
+          charIndex += 1;
+        } else {
+          // 中文：按字符计算时间戳
+          textWithTime += `${(timeData[charIndex][0] / 1000).toFixed(2)}:${word}\n`;
+          charIndex += word.length;
+        }
+      }
+      
+      return textWithTime;
+    } catch (error) {
+      console.warn('解析时间戳失败:', error);
+      return text;
+    }
+  };
 
   // 检查并请求文件系统访问权限
   const requestDirectoryAccess = async () => {
@@ -162,18 +202,48 @@ const VoiceAnalysis = () => {
       onTranscription: (result: TranscriptionResult) => {
         // 解析SenseVoice情感标签
         const emotionInfo = parseSenseVoiceEmotion(result.text);
+        const cleanText = emotionInfo.cleanText;
+        const asrMode = result.mode || '2pass';
+        const isFinal = result.is_final;
+        const timestamp = result.timestamp;
         
-        // 更新转录文本（使用清理后的文本）
-        setTranscriptText(prev => {
-          if (result.is_final) {
-            return prev + (prev ? ' ' : '') + emotionInfo.cleanText
-          } else {
-            return prev + (prev ? ' ' : '') + `[${emotionInfo.cleanText}]`
-          }
-        })
+        console.log("收到转录结果:", {
+          originalText: result.text,
+          cleanText: cleanText,
+          emotionTag: emotionInfo.emotionTag,
+          emotion: emotionInfo.emotion,
+          sentiment: emotionInfo.sentiment,
+          mode: asrMode,
+          isFinal,
+          timestamp
+        });
         
-        // 如果检测到情感标签且是最终结果，生成情感分析结果
-        if (emotionInfo.emotionTag && result.is_final) {
+        // 参考html中的日志输出
+        console.log("message:", cleanText);
+        
+        // 参考html中的2pass逻辑处理转录文本
+        if (asrMode === "2pass-offline" || asrMode === "offline") {
+          // 离线模式：累积带时间戳的文本到offline_text
+          setOfflineText(prev => {
+            const newOfflineText = prev + handleWithTimestamp(cleanText, timestamp);
+            console.log("offline_text:", asrMode + "," + newOfflineText);
+            // 将offline_text赋值给rec_text（显示文本）
+            setTranscriptText(newOfflineText);
+            return newOfflineText;
+          });
+        } else {
+          // 在线模式：直接追加文本到rec_text
+          setTranscriptText(prev => {
+            const newText = prev + cleanText; // 参考html：rec_text=rec_text+rectxt
+            console.log("rec_text:", newText);
+            return newText;
+          });
+        }
+        
+        // 处理情感标签（无论是否为最终结果）
+        if (emotionInfo.emotionTag) {
+          console.log("检测到情感标签:", emotionInfo.emotionTag, "情感:", emotionInfo.emotion);
+          
           const analysisResult: VoiceAnalysisResult = {
             timestamp: result.timestamp,
             confidence: result.confidence,
@@ -186,8 +256,15 @@ const VoiceAnalysis = () => {
           
           // 更新情感分析结果
           setCurrentAnalysis(analysisResult);
-          setAnalysisResults(prev => [...prev, analysisResult]);
+          
+          // 只有最终结果才添加到历史记录
+          if (isFinal) {
+            setAnalysisResults(prev => [...prev, analysisResult]);
+          }
         }
+        
+        // 参考html中的文件模式处理逻辑
+        // 注意：我们的应用主要是实时录音模式，所以这里不需要文件模式的处理
       },
       
       onAnalysis: (result: VoiceAnalysisResult) => {
@@ -218,7 +295,7 @@ const VoiceAnalysis = () => {
       },
       
       onError: (error: string) => {
-        message.error(`语音识别错误: ${error}`)
+        message.error(`实时分析错误: ${error}`)
         console.error('WebSocket错误:', error)
       }
     })
@@ -350,9 +427,9 @@ const VoiceAnalysis = () => {
           setIsRecording(true)
           isRecordingRef.current = true
           setRecordingTime(0)
-          setTranscriptText('')
-          setAnalysisResults([])
-          setCurrentAnalysis(null)
+          
+          // 清空转录文本（参考html中的clear函数）
+          clearTranscript()
           
           // 显示录音状态
           const saveStatus = hasDirectoryAccess ? '保存到所选目录' : '自动下载'
@@ -440,6 +517,14 @@ const VoiceAnalysis = () => {
     }
   }, [])
 
+  // 清空转录文本（参考html中的clear函数）
+  const clearTranscript = () => {
+    setTranscriptText('')
+    setOfflineText('')
+    setAnalysisResults([])
+    setCurrentAnalysis(null)
+  }
+
   // 格式化时间
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -465,6 +550,15 @@ const VoiceAnalysis = () => {
             danger={isRecording}
           >
             {isRecording ? '停止分析' : '开始分析录音'}
+          </Button>
+          
+          <Button 
+            type="default"
+            size="large"
+            onClick={clearTranscript}
+            disabled={isRecording}
+          >
+            清空文本
           </Button>
           
           {/* 连接状态指示器 */}
@@ -535,7 +629,20 @@ const VoiceAnalysis = () => {
               }}
             >
               {transcriptText ? (
-                <Text>{transcriptText}</Text>
+                <div>
+                  <Text>{transcriptText}</Text>
+                  {currentAnalysis && (
+                    <div style={{ marginTop: 8, padding: 8, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        检测到情感: <Tag color="blue">{currentAnalysis.emotion}</Tag>
+                        倾向: <Tag color={
+                          currentAnalysis.sentiment === '积极' ? 'green' : 
+                          currentAnalysis.sentiment === '消极' ? 'red' : 'orange'
+                        }>{currentAnalysis.sentiment}</Tag>
+                      </Text>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <Text type="secondary">
                   {isRecording ? '正在监听...' : '点击"开始分析录音"开始语音识别'}
@@ -545,13 +652,13 @@ const VoiceAnalysis = () => {
           </Card>
         </Col>
 
-        {/* 语音情感分析视窗 */}
+        {/* 实时分析视窗 */}
         <Col span={12}>
           <Card 
             title={
               <Space>
                 <BulbOutlined />
-                情感分析
+                实时分析
               </Space>
             }
             style={{ height: 400 }}
@@ -560,7 +667,7 @@ const VoiceAnalysis = () => {
               {currentAnalysis ? (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
-                    <Text strong>当前分析 ({currentAnalysis.timestamp})</Text>
+                    <Text strong>当前实时分析 ({currentAnalysis.timestamp})</Text>
                     <Divider style={{ margin: '8px 0' }} />
                   </div>
                   
@@ -620,7 +727,7 @@ const VoiceAnalysis = () => {
               ) : (
                 <Alert 
                   message="等待分析结果"
-                  description={isRecording ? "正在分析您的语音..." : "开始录音后将显示情感分析结果"}
+                  description={isRecording ? "正在分析您的语音..." : "开始录音后将显示实时分析结果"}
                   type="info"
                   showIcon
                 />
@@ -632,7 +739,7 @@ const VoiceAnalysis = () => {
 
       {/* 历史分析结果 */}
       {analysisResults.length > 0 && (
-        <Card title="分析历史" style={{ marginTop: 24 }}>
+        <Card title="历史分析" style={{ marginTop: 24 }}>
           <div style={{ maxHeight: 200, overflow: 'auto' }}>
             {analysisResults.slice().reverse().map((result, index) => (
               <div key={index} style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
