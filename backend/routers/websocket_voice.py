@@ -144,6 +144,7 @@ class AudioProcessor:
         try:
             # 这里可以添加音频预处理逻辑
             # 比如降噪、音量调整等
+            # 记录音频数据大小到控制台
             return audio_data
         except Exception as e:
             logger.error(f"音频处理错误: {e}")

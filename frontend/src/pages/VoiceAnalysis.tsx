@@ -9,23 +9,32 @@ import {
 } from '@ant-design/icons'
 import { 
   voiceWebSocketService, 
-  AudioProcessor, 
   parseSenseVoiceEmotion,
   type TranscriptionResult, 
   type VoiceAnalysisResult 
 } from '../services/websocketService'
 
-const { Title, Text, Paragraph } = Typography
+// 导入 recorder-core.js
+// @ts-ignore
+import '../services/recorder-core.js'
+import '../services/pcm.js'
+import '../services/wav.js'
+// import '../services/wsconnecter.js'
 
-// File System Access API 类型补充
+// 声明全局 Recorder 类型
 declare global {
   interface Window {
+    Recorder: any;
     showDirectoryPicker: (options?: {
       mode?: 'read' | 'readwrite'
       startIn?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'
     }) => Promise<FileSystemDirectoryHandle>
   }
 }
+
+const { Title, Text, Paragraph } = Typography
+
+
 
 // 移除本地接口定义，使用从websocketService导入的类型
 
@@ -60,25 +69,26 @@ const calculatePace = (text: string): number => {
   return Math.round(pace);
 };
 
+// VoiceAnalysis 语音分析主组件
 const VoiceAnalysis = () => {
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcriptText, setTranscriptText] = useState('')
-  const [analysisResults, setAnalysisResults] = useState<VoiceAnalysisResult[]>([])
-  const [currentAnalysis, setCurrentAnalysis] = useState<VoiceAnalysisResult | null>(null)
-  const [audioLevel, setAudioLevel] = useState(0)
-  const [recordingTime, setRecordingTime] = useState(0)
-  const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')
+  // === 基础状态管理 ===
+  const [isRecording, setIsRecording] = useState(false)          // 录音状态控制（用于UI渲染）
+  const isRecordingRef = useRef(false)                          // 录音状态引用（用于recProcess函数）
+  const [transcriptText, setTranscriptText] = useState('')       // 实时转录文本内容
+  const [analysisResults, setAnalysisResults] = useState<VoiceAnalysisResult[]>([])  // 历史分析结果列表
+  const [currentAnalysis, setCurrentAnalysis] = useState<VoiceAnalysisResult | null>(null)  // 当前分析结果
+  const [audioLevel, setAudioLevel] = useState(0)               // 音频音量级别（0-100）
+  const [recordingTime, setRecordingTime] = useState(0)          // 录音时长（秒）
+  const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')  // WebSocket连接状态
   
-  // WebSocket和音频处理相关引用
-  const audioProcessorRef = useRef<AudioProcessor | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const animationFrameRef = useRef<number>()
-  const timerRef = useRef<number>()
-  const streamRef = useRef<MediaStream | null>(null)
-  const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null)
-  const recordingChunksRef = useRef<Blob[]>([])
+  // === 音频处理相关引用 ===
+  const recorderRef = useRef<any>(null)                          // Recorder.js 录音器实例
+  const sampleBufferRef = useRef<Int16Array>(new Int16Array())   // PCM音频采样缓冲区
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)    // 浏览器原生媒体录音器
+  const timerRef = useRef<number>()                              // 录音计时器引用
+  const streamRef = useRef<MediaStream | null>(null)             // 音频流引用
+  const directoryHandleRef = useRef<FileSystemDirectoryHandle | null>(null)  // 文件系统目录句柄
+  const recordingChunksRef = useRef<Blob[]>([])                  // 录音数据块缓存
 
   // 检查并请求文件系统访问权限
   const requestDirectoryAccess = async () => {
@@ -219,17 +229,38 @@ const VoiceAnalysis = () => {
     }
   }, [])
 
-  // 音频级别检测
-  const detectAudioLevel = () => {
-    if (!analyserRef.current) return
+  // Recorder音频处理回调函数（类似main.js中的recProcess）
+  const recProcess = (buffer: any[], powerLevel: number, bufferDuration: number, bufferSampleRate: number, _newBufferIdx: number, _asyncEnd?: () => void) => {
+    if (!isRecordingRef.current) return
     
-    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
-    analyserRef.current.getByteFrequencyData(dataArray)
+    // 更新音频级别和录音时间
+    setAudioLevel(powerLevel)
+    setRecordingTime(Math.floor(bufferDuration / 1000))
     
-    const average = dataArray.reduce((a, b) => a + b) / dataArray.length
-    setAudioLevel(average)
+    // 获取最新的音频数据（类似main.js中的处理）
+    const data_latest = buffer[buffer.length - 1]
+    if (!data_latest) return
     
-    animationFrameRef.current = requestAnimationFrame(detectAudioLevel)
+    // 转换采样率到16kHz（完全按照main.js的逻辑）
+    let data_16k = data_latest
+    if (bufferSampleRate !== 16000) {
+      const array_source = new Array(data_latest)
+      data_16k = window.Recorder.SampleData(array_source, bufferSampleRate, 16000).data
+    }
+    
+    // 添加到采样缓冲区
+    const newSampleBuf = Int16Array.from([...sampleBufferRef.current, ...data_16k])
+    sampleBufferRef.current = newSampleBuf
+    
+    // 分块发送数据到WebSocket（严格按照main.js中的逻辑）
+    const chunk_size = 960 // ASR chunk_size [5, 10, 5]
+    while (sampleBufferRef.current.length >= chunk_size) {
+      const sendBuf = sampleBufferRef.current.slice(0, chunk_size)
+      sampleBufferRef.current = sampleBufferRef.current.slice(chunk_size)
+      
+      // 【修正】发送ArrayBuffer，后端期望bytes数据
+      voiceWebSocketService.sendAudioData(sendBuf.buffer)
+    }
   }
 
   // 开始录音
@@ -243,81 +274,103 @@ const VoiceAnalysis = () => {
         return
       }
       
-      // 2. 选择录音保存目录（可选，失败不影响录音）
+      // 注意：不需要发送初始化配置，后端会自动管理FunASR连接
+      
+      // 3. 选择录音保存目录（可选，失败不影响录音）
       message.loading('请选择录音保存目录...', 1)
       const hasDirectoryAccess = await requestDirectoryAccess()
       
-      // 3. 获取麦克风音频
-      message.loading('获取麦克风权限...', 1)
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          sampleRate: 16000  // 修改为16000以匹配后端期望
-        } 
-      })
-      streamRef.current = stream
-      
-      // 4. 创建音频上下文用于检测音频级别
-      audioContextRef.current = new AudioContext()
-      analyserRef.current = audioContextRef.current.createAnalyser()
-      const source = audioContextRef.current.createMediaStreamSource(stream)
-      source.connect(analyserRef.current)
-      
-      // 5. 初始化音频处理器用于WebSocket传输
-      audioProcessorRef.current = new AudioProcessor()
-      const audioProcessorInitialized = await audioProcessorRef.current.initializeAudioProcessor(
-        stream, 
-        (audioData: ArrayBuffer) => {
-          // 发送音频数据到WebSocket
-          voiceWebSocketService.sendAudioData(audioData)
-        }
-      )
-      
-      if (!audioProcessorInitialized) {
-        message.error('初始化音频处理器失败')
+      // 4. 创建Recorder实例
+      if (!window.Recorder) {
+        message.error('Recorder库未加载')
         return
       }
       
-      // 6. 创建媒体录制器用于本地保存
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
+      // 重置采样缓冲区
+      sampleBufferRef.current = new Int16Array()
+      
+      // 创建录音对象，配置为PCM格式，16kHz采样率
+      recorderRef.current = window.Recorder({
+        type: "pcm",
+        bitRate: 16,
+        sampleRate: 16000,
+        onProcess: recProcess  // 使用我们的处理函数
       })
       
-      // 7. 重置录音数据
-      recordingChunksRef.current = []
+      message.loading('获取麦克风权限...', 1)
       
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordingChunksRef.current.push(event.data)
+      // 5. 打开录音并开始
+      recorderRef.current.open(
+        async () => {
+          // 录音设备打开成功
+          console.log('录音设备已打开')
+          
+          // 获取音频流用于本地保存（可选）
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+              audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                sampleRate: 16000
+              } 
+            })
+            streamRef.current = stream
+            
+            // 创建媒体录制器用于本地保存
+            mediaRecorderRef.current = new MediaRecorder(stream, {
+              mimeType: 'audio/webm;codecs=opus'
+            })
+            
+            // 重置录音数据
+            recordingChunksRef.current = []
+            
+            mediaRecorderRef.current.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                recordingChunksRef.current.push(event.data)
+              }
+            }
+            
+            mediaRecorderRef.current.onstop = async () => {
+              // 录音结束时保存文件
+              const recordingBlob = new Blob(recordingChunksRef.current, { type: 'audio/webm' })
+              await saveRecordingFile(recordingBlob)
+            }
+            
+            mediaRecorderRef.current.start(1000) // 每秒触发一次 dataavailable
+          } catch (streamError) {
+            console.warn('无法创建MediaRecorder用于本地保存:', streamError)
+            // 即使无法创建MediaRecorder，Recorder库的录音功能仍然可用
+          }
+          
+          // 开始Recorder录音
+          recorderRef.current.start()
+          
+          // 更新录音状态
+          setIsRecording(true)
+          isRecordingRef.current = true
+          setRecordingTime(0)
+          setTranscriptText('')
+          setAnalysisResults([])
+          setCurrentAnalysis(null)
+          
+          // 显示录音状态
+          const saveStatus = hasDirectoryAccess ? '保存到所选目录' : '自动下载'
+          message.success(`录音开始！已连接语音识别服务，${saveStatus}`)
+          console.log(`录音开始！已连接语音识别服务，${isRecordingRef.current}`);
+          
+        },
+        (errMsg: string, isUserNotAllow: boolean) => {
+          // 录音设备打开失败
+          console.error('录音设备打开失败:', errMsg)
+          if (isUserNotAllow) {
+            message.error('用户拒绝了录音权限')
+          } else {
+            message.error(`录音启动失败: ${errMsg}`)
+          }
+          voiceWebSocketService.disconnect()
         }
-      }
-      
-      mediaRecorderRef.current.onstop = async () => {
-        // 录音结束时保存文件
-        const recordingBlob = new Blob(recordingChunksRef.current, { type: 'audio/webm' })
-        await saveRecordingFile(recordingBlob)
-      }
-      
-      mediaRecorderRef.current.start(1000) // 每秒触发一次 dataavailable
-      setIsRecording(true)
-      setRecordingTime(0)
-      setTranscriptText('')
-      setAnalysisResults([])
-      setCurrentAnalysis(null)
-      
-      // 开始检测音频级别
-      detectAudioLevel()
-      
-      // 开始计时
-      timerRef.current = window.setInterval(() => {
-        setRecordingTime(prev => prev + 1)
-      }, 1000)
-      
-      // 显示录音状态
-      const saveStatus = hasDirectoryAccess ? '保存到所选目录' : '自动下载'
-      message.success(`录音开始！已连接语音识别服务，${saveStatus}`)
+      )
       
     } catch (error) {
       console.error('录音启动失败:', error)
@@ -328,15 +381,34 @@ const VoiceAnalysis = () => {
 
   // 停止录音
   const stopRecording = () => {
-    // 停止录制器
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop()
+    // 停止Recorder录音
+    if (recorderRef.current) {
+      recorderRef.current.stop(
+        (_blob: Blob, duration: number) => {
+          // 录音停止成功回调
+          console.log('Recorder录音已停止, 时长:', duration, 'ms')
+          
+          // 发送剩余的音频数据
+          if (sampleBufferRef.current.length > 0) {
+            voiceWebSocketService.sendAudioData(sampleBufferRef.current.buffer)
+            sampleBufferRef.current = new Int16Array()
+          }
+          
+          // 注意：不需要发送结束信号，后端会在WebSocket断开时自动清理
+          
+          // 关闭Recorder
+          recorderRef.current.close()
+          recorderRef.current = null
+        },
+        (errMsg: string) => {
+          console.error('停止录音失败:', errMsg)
+        }
+      )
     }
     
-    // 停止音频处理器
-    if (audioProcessorRef.current) {
-      audioProcessorRef.current.stop()
-      audioProcessorRef.current = null
+    // 停止MediaRecorder（用于本地保存）
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop()
     }
     
     // 断开WebSocket连接
@@ -348,22 +420,13 @@ const VoiceAnalysis = () => {
       streamRef.current = null
     }
     
-    // 关闭音频上下文
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
-      audioContextRef.current = null
-    }
-    
-    // 清理动画和计时器
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-    }
-    
+    // 清理计时器
     if (timerRef.current) {
       window.clearInterval(timerRef.current)
     }
     
     setIsRecording(false)
+    isRecordingRef.current = false
     setAudioLevel(0)
     setConnectionStatus('disconnected')
     
