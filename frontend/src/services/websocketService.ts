@@ -213,6 +213,9 @@ export class VoiceWebSocketService {
    */
   private handleMessage(data: string) {
     try {
+      // 记录后端返回的原始文本
+      console.log('[WebSocket] 收到后端原始数据:', data);
+      
       const message: WebSocketMessage = JSON.parse(data);
       
       switch (message.type) {

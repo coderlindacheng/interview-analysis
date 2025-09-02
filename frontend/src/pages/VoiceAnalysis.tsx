@@ -44,6 +44,9 @@ const VoiceAnalysis = () => {
     // 设置WebSocket服务回调
     voiceWebSocketService.setCallbacks({
       onTranscription: (result: TranscriptionResult) => {
+        // 记录接收到的原始转录结果
+        console.log('[VoiceAnalysis] 收到转录结果:', result);
+        
         const tagInfo = parseSenseVoiceTags(result.text)
         const cleanText = tagInfo.cleanText
         const asrMode = result.mode || '2pass'
@@ -79,6 +82,9 @@ const VoiceAnalysis = () => {
       },
       
       onAnalysis: (result: VoiceAnalysisResult) => {
+        // 记录接收到的原始分析结果
+        console.log('[VoiceAnalysis] 收到分析结果:', result);
+        
         setCurrentAnalysis(result)
         setAnalysisResults(prev => [...prev, result])
       }
