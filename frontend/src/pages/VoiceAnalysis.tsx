@@ -200,22 +200,7 @@ const VoiceAnalysis = () => {
               }}
             >
               {transcriptText ? (
-                <div>
-                  <Text>{transcriptText}</Text>
-                  {currentAnalysis && (
-                    <div style={{ marginTop: 8, padding: 8, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        检测到情感: <Tag color="blue">{currentAnalysis.emotion}</Tag>
-                        倾向: <Tag color={
-                          currentAnalysis.sentiment === '积极' ? 'green' :
-                          currentAnalysis.sentiment === '消极' ? 'red' : 'orange'
-                        }>{currentAnalysis.sentiment}</Tag>
-                        语言: <Tag color="purple">{currentAnalysis.language}</Tag>
-                        事件: <Tag color="cyan">{currentAnalysis.event}</Tag>
-                      </Text>
-                    </div>
-                  )}
-                </div>
+                <Text>{transcriptText}</Text>
               ) : (
                 <Text type="secondary">
                   {isRecording ? '正在监听...' : '点击"开始分析录音"开始语音识别'}
