@@ -93,6 +93,11 @@ class ConnectionManager:
                 print(f"   时间: {datetime.now().strftime('%H:%M:%S')}")
                 print("─" * 50)
             
+                        # 只返回2pass-offline结果
+            if mode != "2pass-offline":
+                print(f"🔄 跳过非离线结果 [客户端: {client_id}] - 模式: {mode}")
+                return
+                
             # 发送转录结果
             transcription_message = json.dumps({
                 "type": "transcription",
