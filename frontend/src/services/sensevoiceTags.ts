@@ -20,7 +20,7 @@ export const SENSEVOICE_EMOTION_MAP: Record<string, { emotion: string; sentiment
 export const SENSEVOICE_LANGUAGE_MAP: Record<string, string> = {
   'zh': '中文',
   'en': '英文',
-  'jp': '日文',
+  'ja': '日文',
   'ko': '韩文',
   'yue': '粤语',
   'fr': '法文',
